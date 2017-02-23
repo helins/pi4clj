@@ -7,8 +7,9 @@
                  :url "https://www.gnu.org/licenses/lgpl.html"}
   :plugins      [[lein-codox "0.9.5"]]
   :codox        {:output-path "doc/auto"
-                 :namespaces [pi4clj.gpio
-                              pi4clj.i2c]}
+                 :namespaces  [pi4clj.gpio
+                               pi4clj.i2c]
+                 :source-uri  "https://github.com/dvlopt/pi4clj/blob/{version}/{filepath}#L{line}"}
   :dependencies [[org.clojure/clojure "1.9.0-alpha10"]
                  [com.pi4j/pi4j-core  "1.1"]
                  ]
