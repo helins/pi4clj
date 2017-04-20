@@ -19,6 +19,11 @@ to start and might even timeout. Simply set a higher timeout than the default 30
 {:repl-options {:timeout 120000}}    ;; 2 minutes
 ```
 
+OpenJDK isn't optimized for ARM at all and is an order of magnitude slower than Oracle's JDK. On
+the other hand, Oracle's JDK... well, in one word, "licensing". That's why we recommend the very
+promising [Zulu Embedded](https://www.azul.com/products/zulu-embedded/) for running java and clojure
+on the raspberry pi. For installation, go [there](https://blog.benjamin-cabe.com/2016/04/05/installing-the-zulu-open-source-java-virtual-machine-on-raspberry-pi).
+
 ## Documentation
 
 Small examples are provided in the 'example' folder.
