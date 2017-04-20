@@ -1,3 +1,6 @@
+# dev namespaces
+/dev/
+
 /target
 /classes
 /checkouts

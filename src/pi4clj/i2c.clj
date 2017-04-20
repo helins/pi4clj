@@ -1,97 +1,24 @@
 (ns pi4clj.i2c
 
-  "Everything related to I2C
-   
-   'open-bus' opens a I2C bus at the given file path.
+  "Everything related to I2C.
 
-   The resulting object implements II2CBus and can be used
-   for reads and writes to slave devices.
+   Open a bus and simply use the fns.
 
-   Don't forget to 'close-bus!' buses that aren't used
-   anymore."
+   <!> Reads and writes are NOT thread-safe !
+       Concurrency can be achieved through agents, core.async,
+       manifold... Use what you need."
 
   (:import com.pi4j.jni.I2C))
 
 
 
 
-(defprotocol II2CBus
 
-  "Functions for handling I2C buses returned by 'pi4clj.i2c/open-bus!'.
-   
-   Each bus has its own agent in order to order operations in sequence (most notably
-   reads and writes). II2CBus functions typically send a function to the agent and return
-   a promise that will be delivered after the sent function is executed."
-   
-
-  (close-bus! [this]
-    "Close this bus. From now on, reads and writes will be disabled
-     and will return nil instead of a promise.
-     
-     Pending reads and writes will still be executed.
-
-     Returns a promise that will be delivered when the device file is closed.")
-
-
-
-  (write! [this slave-address data]
-          [this slave-address register data]
-    "Write a single byte or a collection of bytes at once to a i2c slave at the register (if given).
-
-     Returns * a promise that will set to * true  if writing succeeded
-                                          * false if writing failed
-             * nil if the bus is closed
-     
-
-     ;; bus defined as 'i2c-1'
-     ;; writes 2 bytes at once to slave 0x48 at register 0x10
-
-     @(pi4clj.i2c/write! i2c-1 0x48 0x10 [0xac 0x0c])")
-
-
-
-  (writes! [this slave-address data]
-           [this slave-address register data]
-    "Succesively writes bytes to a i2c slave at the register (if given).
-     
-     Facilitates such things as configuration and basically any operations requiring
-     a sequence of distinct writes.
-
-     Returns * true if all writes succeeded
-             * the byte or coll of bytes that failed the sequence
-             * nil if the bus is closed
-     
-     
-     ;; bus defined as 'i2c-1'
-     ;; configure slave 0x48
-
-     (pi4clj.i2c/writes! i2c-1 0x48 [0x22         ;; stop slave
-                                     [0xac 0x0c]  ;; 2 bytes config
-                                     0x51])       ;; restart slave")
-
-
-
-  (read! [this slave-address n]
-         [this slave-address register n]
-    "Read 'n' bytes from a i2c slave at the register (if given).
-
-     Returns * a promise that will be set to * resulting coll of bytes if reading succeeded
-                                             * nil                     if reading failed
-             * nil if the bus is closed
-
-     ;; bus defined as 'i2c-1'
-     ;; reads 2 bytes from slave 0x48 at register 0xaa
-
-     @(pi4clj.i2c/read! i2c-1 0x48 0xaa 2)"))
-
-
-
-
-(defn- coll->bytes
+(defn- -coll->byte-array
 
   "Transform a collections of integers into an array of bytes
    
-   (pi4clj.i2c/coll->bytes [0xac 0x0c])"
+   (pi4clj.i2c/-coll->byte-array [0xac 0x0c])"
 
   [coll]
 
@@ -101,134 +28,200 @@
 
 
 
-(defn- bytes->coll
+(defn- -byte-array->vec
 
   "Transform an array of bytes into a collection of 'unsigned' integers"
 
   [byts]
 
-  (map #(bit-and % 0xFF)
+  (map #(bit-and %
+                 0xFF)
        byts))
 
 
 
 
-(defn open-bus!
+(defn open-bus
 
-  "Open a I2C bus at the given file path.
-   
-   Returns * an object implementing II2CBus if opening succeeded
-           * nil                            if opening failed
-
+  "Given a path, open a I2C bus. This bus can then be
+   used in the fns provided by this namespace.
 
-   (def i2c-1 (pi4clj.i2c/open-bus! \"/dev/i2c-1\"))"
+   Returns nil in case of failure.
+
+   <!> Reads and writes are NOT thread-safe !
+       Concurrency can be achieved through agents, core.async,
+       manifold... Use whatever you need.
+
+   ex.
+     (pi4clj.i2c/open-bus \"/dev/i2c-1\")"
 
   [bus-path]
 
   (let [fd (I2C/i2cOpen bus-path)]
-    (when (>= fd 0)
-      (let [open? (atom true)
-            queue (agent nil
-                         :error-mode :continue)
-            send-to-queue (fn [force? f]
-                            (when (or force?
-                                      @open?)
-                              (let [p (promise)]
-                                (send-off queue
-                                          (fn [_] (deliver p (f))))
-                                p)))]
-    (reify II2CBus
-
-      (close-bus! [_]
-        (reset! open?
-                false)
-        (send-to-queue true
-                       (fn []
-                         (I2C/i2cClose fd)
-                         true)))
+    (when-not (neg? fd)
+      {:fd   fd
+       :path bus-path})))
 
 
 
-      (write! [_ slave-address data]
-        (send-to-queue false
-                       (if (coll? data)
-                           (let [data' (coll->bytes data)]
-                             #(= (I2C/i2cWriteBytesDirect fd
-                                                          slave-address
-                                                          (count data')
-                                                          0
-                                                          data')
-                                 0))
-                           #(= (I2C/i2cWriteByteDirect fd
-                                                       slave-address
-                                                       (unchecked-byte data))
-                               0))))
+
+(defn close-bus
+
+  "Cleanly close an I2C bus previously opened by
+   'pi4clj.i2c/open-bus'.
+
+   Should be called when you are done with it.
+
+   Returns true or false whether it suceeded or not."
+
+  [{:keys [fd]
+    :as   bus}]
+
+  (zero? (I2C/i2cClose fd)))
 
 
 
-      (write! [_ slave-address register data]
-        (send-to-queue false
-                       (if (coll? data)
-                           (let [data' (coll->bytes data)]
-                             #(= (I2C/i2cWriteBytes fd
-                                                    slave-address
-                                                    register
-                                                    (count data')
-                                                    0
-                                                    data')
-                                 0))
-                           #(= (I2C/i2cWriteByte fd
+
+(defn wr
+
+  "Given an I2C bus, write something.
+
+   slave-address : an int representing a slave
+   byte+ : an int representing a single byte
+         | a collection of them
+
+   Returns what has been written, nil in case of failure."
+
+  [{:keys [fd]
+    :as   bus} slave-address byte+]
+
+  (when (and fd
+             (zero? (if (coll? byte+)
+                        (I2C/i2cWriteBytesDirect fd
                                                  slave-address
-                                                 register
-                                                 (unchecked-byte data))
-                               0))))
+                                                 (count byte+)
+                                                 0
+                                                 (-coll->byte-array byte+))
+                        (I2C/i2cWriteByteDirect fd
+                                                slave-address
+                                                (unchecked-byte byte+)))))
+    byte+))
 
 
 
-      (writes! [this slave-address data]
-        (loop [data' data]
-          (when data'
-            (if @(write! this
-                         slave-address
-                         (first data'))
-                (recur (next data'))
-                (first data')))))
+
+(defn wr-reg
+
+  "Same as 'pi4clj.i2c/wr' but writes to a specific register provided
+   as an int"
+
+  [{:keys [fd]
+    :as   bus} slave-address register byte+]
+
+  (when (and fd
+             (zero? (if (coll? byte+)
+                        (I2C/i2cWriteBytes fd
+                                           slave-address
+                                           register
+                                           (count byte+)
+                                           0
+                                           (-coll->byte-array byte+))
+                        (I2C/i2cWriteByte fd
+                                          slave-address
+                                          register
+                                          (unchecked-byte byte+)))))
+    byte+))
 
 
 
-      (writes! [this slave-address register data]
-        (loop [data' data]
-          (when data'
-            (if @(write! this
-                         slave-address
-                         register
-                         (first data'))
-                (recur (next data'))
-                (first data')))))
+
+(defn wr+
+
+  "Sometimes, multiple writes have to been done sequentially and
+   not at once, for instance when configuring certains slaves.
+   
+   This fn calls 'pi4clj.i2c/wr' for every element in coll-byte+,
+   one at a time, and returns a collection of what has been successfully
+   writen."
+
+  [bus slave-address coll-byte+]
+
+  (let [n (reduce (fn [n byte+] (if (wr bus
+                                        slave-address
+                                        byte+)
+                                    (inc n)
+                                    (reduced n)))
+                  0
+                  coll-byte+)]
+    (cond (zero? n)
+          nil
+
+          (= n
+             (count coll-byte+))
+          coll-byte+
+
+          ::else
+          (take n
+                coll-byte+))))
 
 
 
-      (read! [_ slave-address n]
-        (send-to-queue false
-                       #(let [arr (make-array Byte/TYPE n)]
-                          (when (>= (I2C/i2cReadBytesDirect fd
-                                                            slave-address
-                                                            n
-                                                            0
-                                                            arr)
-                                    0)
-                            (bytes->coll arr)))))
+
+(defn rd
+
+  "Given an I2C bus, read 1 or 'n' bytes from a slave
+   adress provided as an int"
+
+  ([{:keys [fd]
+     :as   bus} slave-address]
+   
+   (when-let [byt (and fd
+                       (I2C/i2cReadByteDirect fd
+                                              slave-address))]
+     (when-not (neg? byt)
+       byt)))
+
+
+  ([{:keys [fd]
+     :as   bus} slave-address n]
+
+   (when-let [ba (and fd
+                      (byte-array n))]
+     (when-not (neg? (I2C/i2cReadBytesDirect fd
+                                             slave-address
+                                             n
+                                             0
+                                             ba))
+       (-byte-array->vec ba)))))
 
 
 
-      (read! [_ slave-address register n]
-        (send-to-queue false
-                       #(let [arr (make-array Byte/TYPE n)]
-                          (when (>= (I2C/i2cReadBytes fd
-                                                      slave-address
-                                                      register
-                                                      n
-                                                      0
-                                                      arr)
-                                    0)
-                            (bytes->coll arr))))))))))
+
+(defn rd-reg
+
+  "Same as 'pi4clj.i2c/rd' but reads from a specific register provided
+   as an int"
+
+  ([{:keys [fd]
+     :as   bus} slave-address register]
+
+   (when-let [byt (and fd
+                       (I2C/i2cReadByte fd
+                                        slave-address
+                                        register))]
+     (when-not (neg? byt)
+       byt)))
+
+
+  ([{:keys [fd]
+     :as   bus} slave-address register n]
+
+   (when-let [ba (and fd
+                      (byte-array n))]
+     (when-not (neg? (I2C/i2cReadBytes fd
+                                       slave-address
+                                       register
+                                       n
+                                       0
+                                       ba))
+       (-byte-array->vec ba)))))

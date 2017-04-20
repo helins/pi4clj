@@ -16,13 +16,14 @@
       - soft-tone-out
       - gpio-clock
  
-   '<-...' functions are for reads
-   '->...' functions are for writes
+   '<!...' functions are for reads
+   '>!...' functions are for writes
   
-   Digital inputs can be monitored using 'monitor-pin'.
+   Digital inputs can be monitored using 'monitor-pin!'.
 
    The user can register listeners using 'add-listener!' that
-   will be invoked everytime the value of a monitored pin changes."
+   will be invoked everytime the value of any of the monitored pin
+   changes."
 
   (:import (com.pi4j.wiringpi Gpio
                               GpioUtil
@@ -36,7 +37,7 @@
 
 
 
-(defn board-rev
+(defn board-revision
 
   "Get the board revision number"
 
@@ -47,7 +48,7 @@
 
 
 
-(def ^:private *setup-mode
+(def ^:private -*setup-mode
   
   "Keep track of the chosen setup mode.
 
@@ -67,26 +68,26 @@
 
   []
 
-  @*setup-mode)
+  @-*setup-mode)
 
 
 
 
-(defmacro ^:private enforce-setup
+(defmacro ^:private -enforce-setup
 
   "Execute forms only if there has been a setup.
    Otherwise returns :pi4clj.gpio/not-started."
 
   [& forms]
 
-  `(if @*setup-mode
+  `(if @-*setup-mode
        (do ~@forms)
        :pi4clj.gpio/not-started))
 
 
 
 
-(def ^:private *monitored-pins
+(def ^:private -*monitored-pins
   
   "Keep track of which pins are being monitored for a
    change in value.
@@ -100,13 +101,13 @@
 
 (defn monitored-pins
 
-  "Get a set containing all the monitored pins.
+  "Get the set containing all the monitored pins.
 
    Cf. pi4clj.gpio/monitor-pin!"
 
   []
 
-  @*monitored-pins)
+  @-*monitored-pins)
 
 
 
@@ -131,21 +132,21 @@
 
   [pin on?]
 
-  (enforce-setup
-    (if (if on?
-            (when (GpioUtil/setEdgeDetection pin
-                                             GpioUtil/EDGE_BOTH)
-              (when (>= (GpioInterrupt/enablePinStateChangeCallback pin)
-                        0)
-                (swap! *monitored-pins conj pin)
-                true))
-            (when (>= (GpioInterrupt/disablePinStateChangeCallback pin)
-                      0)
-              (swap! *monitored-pins disj pin)
-              true))
-
-        true
-        false)))
+  (-enforce-setup
+    (locking (str "pi4clj.pin." pin)
+      (boolean (if on?
+                   (when (and (GpioUtil/setEdgeDetection pin
+                                                         GpioUtil/EDGE_BOTH)
+                              (pos? (GpioInterrupt/enablePinStateChangeCallback pin)))
+                     (swap! -*monitored-pins
+                            conj
+                            pin)
+                     true)
+                   (when (pos? (GpioInterrupt/disablePinStateChangeCallback pin))
+                     (swap! -*monitored-pins
+                            disj
+                            pin)
+                     true))))))
 
 
 
@@ -159,22 +160,16 @@
 
   []
   
-  (enforce-setup
-    (swap! *monitored-pins
-           (fn [monitored-pins]
-             (reduce (fn [monitored-pins pin]
-                       (if (monitor-pin! pin
-                                         false)
-                           (disj monitored-pins pin)
-                           monitored-pins))
-                     monitored-pins
-                     monitored-pins)))
+  (-enforce-setup
+    (doseq [pin @-*monitored-pins]
+      (monitor-pin! pin
+                    false))
     nil))
 
 
 
 
-(def ^:private *listeners
+(def ^:private -*listeners
 
   "Map of interrupt listeners registered by the user.
    Each listener is associated with a keyword given by the user.
@@ -194,23 +189,20 @@
 
   []
 
-  (->> @*listeners
-       keys
-       (into #{})))
+  (into #{}
+        (keys @-*listeners)))
 
 
 
 
 (defn add-listener!
 
-  "Register a function to be executed everytime
-   the value of a monitored pin changes.
+  "Register a fn to be executed everytime the value of any
+   of the monitored pin changes. It is given the pin number
+   and the pin state as arguments.
 
-   The function is given {:pin   ...
-                          :state ...} as argument.
-   
    It is registered with a keyword which can later be
-   used for removing the listener.
+   used to remove the listener.
    
    Returns the keyword.
 
@@ -225,7 +217,10 @@
 
   [kw f]
 
-  (swap! *listeners assoc kw f)
+  (swap! -*listeners
+         assoc
+         kw
+         f)
   kw)
 
 
@@ -242,7 +237,9 @@
 
   [kw]
 
-  (swap! *listeners dissoc kw)
+  (swap! -*listeners
+         dissoc
+         kw)
   kw)
 
 
@@ -257,9 +254,48 @@
 
   []
 
-  (reset! *listeners
+  (reset! -*listeners
           {}))
 
+
+
+
+(defn high?
+
+  "Is a digital state high ?"
+
+  [x]
+
+  (identical? x
+              :high))
+
+
+
+
+(defn low?
+
+  "Is a digital state low ?"
+
+  [x]
+
+  (identical? x
+              :low))
+
+
+
+
+(def -main-listener
+
+  ""
+
+  (proxy [GpioInterruptListener] []
+    (pinStateChange [^GpioInterruptEvent ev]
+      (let [pin   (.getPin ev)
+            state (if (.getState ev)
+                      :high
+                      :low)]
+        (doseq [listener (vals @-*listeners)] (listener pin
+                                                        state))))))
 
 
 
@@ -291,21 +327,15 @@
 
   ;; GpioInterrupt provides native bindings different from wiringPi
 
-  (or @*setup-mode
+  (or @-*setup-mode
       (do (case chosen-mode
             :abstract (Gpio/wiringPiSetup)
             :gpio     (Gpio/wiringPiSetupGpio)
             ;:physical (Gpio/wiringPiSetupPhys)
             :sys      (Gpio/wiringPiSetupSys))
-          (reset! *setup-mode
+          (reset! -*setup-mode
                   chosen-mode)
-          (GpioInterrupt/addListener
-                (proxy [GpioInterruptListener] []
-                  (pinStateChange [^GpioInterruptEvent ev]
-                    (let [ev-data {:pin   (.getPin   ev)
-                                   :state (if (.getState ev) :high
-                                                             :low)}]
-                      (doseq [[_ listener] @*listeners] (listener ev-data))))))
+          (GpioInterrupt/addListener -main-listener)
           chosen-mode)))
 
 
@@ -321,7 +351,7 @@
 
   [pin resistance]
   
-  (enforce-setup
+  (-enforce-setup
     (Gpio/pullUpDnControl pin
                           (case resistance
                             :off  0
@@ -331,7 +361,7 @@
 
 
 
-(defn <-analog
+(defn <!analog
 
   "Read an int from an analog input.
 
@@ -341,13 +371,13 @@
   
   [pin]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/analogRead pin)))
 
 
 
 
-(defn ->analog
+(defn >!analog
 
   "Write an int to an analog output.
 
@@ -357,19 +387,19 @@
 
   [pin value]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/analogWrite pin value)))
 
 
 
 
-(defn <-digital
+(defn <!digital
 
   "Read :high or :low from a digital input"
 
   [pin]
 
-  (enforce-setup
+  (-enforce-setup
     (if (zero? (Gpio/digitalRead pin))
         :low
         :high)))
@@ -377,13 +407,13 @@
 
 
 
-(defn ->digital
+(defn >!digital
   
   "Set a digital output to :high or :low"
 
   [^Long pin state]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/digitalWrite pin
                        (case state
                          :low  0
@@ -398,31 +428,31 @@
 
   [pin]
 
-  (enforce-setup
-    (let [new-state (case (<-digital pin)
+  (-enforce-setup
+    (let [new-state (case (<!digital pin)
                       :low  :high
                       :high :low)]
-      (->digital pin
+      (>!digital pin
                  new-state)
       new-state)))
 
 
 
 
-(defn ->gpio-clock
+(defn >!gpio-clock
 
   "Sets the frequency of the given gpio clock pin"
 
   [pin frequency]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/gpioClockSet pin
                        frequency)))
 
 
 
 
-(defn ->hard-pwm
+(defn >!hard-pwm
 
   "Write an int value to the PWM register for the given pin.
    The Raspberry Pi has a default range of 1024.
@@ -431,14 +461,14 @@
 
   [pin value]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/pwmWrite pin
                    value)))
 
  
 
 
-(defn ->soft-pwm
+(defn >!soft-pwm
 
   "Write an int to a software pwm output.
    Within the limits of the declared range.
@@ -447,14 +477,14 @@
 
   [pin value]
 
-  (enforce-setup
+  (-enforce-setup
     (SoftPwm/softPwmWrite pin
                           value)))
 
 
 
 
-(defn ->soft-tone
+(defn >!soft-tone
 
   "Change the frequence of the given software tone pin.
    
@@ -462,7 +492,7 @@
 
   [pin frequency]
 
-  (enforce-setup
+  (-enforce-setup
     (SoftTone/softToneWrite pin
                             frequency)))
 
@@ -476,7 +506,7 @@
    Optionally accepts :high
                       :low  as a start state.
    
-   Cf. pi4clj.gpio/->digital
+   Cf. pi4clj.gpio/>!digital
 
 
    ;; pin 0 as :high
@@ -486,11 +516,11 @@
 
   [pin & [state]]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/pinMode pin
                   Gpio/OUTPUT)
     (when state
-      (->digital pin
+      (>!digital pin
                  state))
     nil))
 
@@ -517,7 +547,7 @@
   [pin & {:keys [pull
                  monitor?]}]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/pinMode pin
                   Gpio/INPUT)
     (when-not (nil? pull)
@@ -537,15 +567,15 @@
 
    Optionally accepts a frequency start value.
 
-   Cf. pi4clj.gpio/->gpio-clock"
+   Cf. pi4clj.gpio/>!gpio-clock"
 
   [pin & [frequency]]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/pinMode pin
                   Gpio/GPIO_CLOCK)
     (when frequency
-      (->gpio-clock pin
+      (>!gpio-clock pin
                     frequency))))
 
 
@@ -557,15 +587,15 @@
    An optional start value can be provided.
    
    Cf. pi4clj.gpio/set-hard-pwm-config
-       pi4clj.gpio/->hard-pwm"
+       pi4clj.gpio/>!hard-pwm"
 
   [pin & [value]]
 
-  (enforce-setup
+  (-enforce-setup
     (Gpio/pinMode pin
                   Gpio/PWM_OUTPUT)
     (when value
-      (->hard-pwm pin
+      (>!hard-pwm pin
                   value))
     nil))
 
@@ -604,7 +634,7 @@
           :or   {pwm-range 100
                  pwm-value   0}}]
   
-  (enforce-setup
+  (-enforce-setup
     (SoftTone/softToneStop pin)
     (SoftPwm/softPwmCreate pin
                            pwm-value
@@ -623,7 +653,7 @@
 
   [pin]
 
-  (enforce-setup
+  (-enforce-setup
     (SoftPwm/softPwmStop pin)))
 
 
@@ -643,7 +673,7 @@
 
   [pin & [frequency]]
 
-  (enforce-setup
+  (-enforce-setup
     (SoftPwm/softPwmStop pin)
     (SoftTone/softToneCreate pin)
     (when frequency
@@ -662,7 +692,7 @@
 
   [pin]
 
-  (enforce-setup
+  (-enforce-setup
     (SoftTone/softToneStop pin)))
           
 
@@ -712,7 +742,7 @@
       divisor   :clock-divisor
       pwm-range :range}]
 
-  (enforce-setup
+  (-enforce-setup
     (when pwm-mode
       (Gpio/pwmSetMode (case pwm-mode
                          :balanced   Gpio/PWM_MODE_BAL

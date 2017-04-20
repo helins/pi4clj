@@ -13,10 +13,9 @@
   [& args]
 
   (gpio/add-listener! :sync
-                      (fn [{:keys [pin
-                                   state]}]
+                      (fn [pin state]
                         (when (= pin 2)
-                          (gpio/->digital 0
+                          (gpio/>!digital 0
                                           state))))
   (gpio/start! :abstract)
   (gpio/as-digital-out 0

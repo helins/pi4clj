@@ -10,7 +10,7 @@ very opiniated.
 
 No prior installation is required, simply add this to your dependencies :
 ```clj
-[dvlopt/pi4clj "0.0.0-alpha0"]
+[dvlopt/pi4clj "0.0.0-alpha1"]
 ```
 
 Interactive development on the board itself is a bliss. Nonetheless, lein's repl can be very slow

@@ -1,5 +1,5 @@
 (defproject dvlopt/pi4clj
-            "0.0.0-alpha0"
+            "0.0.0-alpha1"
   :repl-options {:timeout 120000}
   :description  "IO on the Raspberry Pi"
   :url          "https://github.com/dvlopt/pi4clj"
@@ -18,5 +18,5 @@
                        :plugins      [[venantius/ultra "0.4.1"]                   ;; colorful repl (breaks with clj > 1.9.0-alpha10)
                                       ]
                        :dependencies [[org.clojure/tools.namespace "0.2.11"]
-                                      ]}
-                 :uberjar {:aot :all}})
+                                      ]
+                       :global-vars {*warn-on-reflection* true}}})
