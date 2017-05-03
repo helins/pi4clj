@@ -284,9 +284,10 @@
 
 
 
-(def -main-listener
+(def ^:private -main-listener
 
-  ""
+  "Listener listening for all interrupts and forwarding to
+   the user defined listeners"
 
   (proxy [GpioInterruptListener] []
     (pinStateChange [^GpioInterruptEvent ev]

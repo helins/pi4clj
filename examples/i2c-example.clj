@@ -19,9 +19,9 @@
                   [0xac 0x0c]        ;; 2 bytes config
                   0x51])             ;; restart slave
         (println "Temperature ="
-                 (i2c/read bus
-                           0x48
-                           0xaa
-                           2))       ;; read the temperature as 2 bytes from register 0xaa
+                 (i2c/red-reg bus
+                              0x48
+                              0xaa
+                              2))    ;; read the temperature as 2 bytes from register 0xaa
         (i2c/close-bus bus))
     (println "Can't open the I2C bus!")))
