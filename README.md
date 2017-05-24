@@ -6,13 +6,13 @@ Handle GPIOs and I2C (and more to come) on the Raspberry Pi and similar boards.
 
 This library relies on [PI4J](http://www.pi4j.com), more specifically the native bindings to
 [Gordon Henderson's wiringPi](http://www.wiringpi.com). It aims to be straightforward and not
-very opiniated.
+very opiniated. No black magic involved.
 
 ## Installation
 
 No prior installation is required, simply add this to your dependencies :
 ```clj
-[dvlopt/pi4clj "0.0.0-alpha1"]
+[dvlopt/pi4clj "0.0.0-alpha2"]
 ```
 
 Interactive development on the board itself is a bliss. Nonetheless, lein's repl can be very slow
@@ -48,8 +48,6 @@ Small examples are provided in the 'examples' folder.
 
 ## Documentation
 
-Small examples are provided in the 'examples' folder.
-
 You will find extensive descriptions of everything you need in the latest
 [api documentation](https://dvlopt.github.io/doc/pi4clj).
 
@@ -62,8 +60,9 @@ cd doc/codox
 
 ## Status
 
-GPIO and I2C seem to be stable but as it is the first release, it is alpha. More capabilities,
- such as SPI and shift registers, will be added.
+In alpha, breaking changes are very much expected for the time being.
+
+More capabilities, such as SPI and shift registers, will be added.
 
 While PI4J supports other boards than the Raspberry family, this library hasn't been tested for
 anything else. Because it is lightweight, it should work just fine.
