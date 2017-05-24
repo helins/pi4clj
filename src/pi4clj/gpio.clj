@@ -212,7 +212,7 @@
    ;; prints the pin number and its current state
    ;; when any monitored pin changes value
 
-   (pi4clj.gpio/add-listener! :printer
+   (pi4clj.gpio/add-listener! :print-temperature
                               println)"
 
   [kw f]
@@ -233,7 +233,7 @@
    Returns the keyword.
    
 
-   (pi4clj.gpio/remove-listener! :printer)"
+   (pi4clj.gpio/remove-listener! :sync-led)"
 
   [kw]
 
@@ -260,30 +260,6 @@
 
 
 
-(defn high?
-
-  "Is a digital state high ?"
-
-  [x]
-
-  (identical? x
-              :high))
-
-
-
-
-(defn low?
-
-  "Is a digital state low ?"
-
-  [x]
-
-  (identical? x
-              :low))
-
-
-
-
 (def ^:private -main-listener
 
   "Listener listening for all interrupts and forwarding to
@@ -291,10 +267,8 @@
 
   (proxy [GpioInterruptListener] []
     (pinStateChange [^GpioInterruptEvent ev]
-      (let [pin   (.getPin ev)
-            state (if (.getState ev)
-                      :high
-                      :low)]
+      (let [pin   (.getPin   ev)
+            state (.getState ev)]
         (doseq [listener (vals @-*listeners)] (listener pin
                                                         state))))))
 
@@ -396,29 +370,28 @@
 
 (defn <!digital
 
-  "Read :high or :low from a digital input"
+  "Read true or false from a digital input, corresponding respectively to
+   high and low"
 
   [pin]
 
   (-enforce-setup
-    (if (zero? (Gpio/digitalRead pin))
-        :low
-        :high)))
+    (boolean (Gpio/digitalRead pin))))
 
 
 
 
 (defn >!digital
   
-  "Set a digital output to :high or :low"
+  "Set a digital output to true or false, corresponding respectively to high and low"
 
   [^Long pin state]
 
   (-enforce-setup
     (Gpio/digitalWrite pin
                        (case state
-                         :low  0
-                         :high 1))))
+                         false 0
+                         true  1))))
 
 
 
@@ -430,9 +403,7 @@
   [pin]
 
   (-enforce-setup
-    (let [new-state (case (<!digital pin)
-                      :low  :high
-                      :high :low)]
+    (let [new-state (not (<!digital pin))]
       (>!digital pin
                  new-state)
       new-state)))
@@ -504,16 +475,16 @@
 
   "Declare the given pin as a digital output.
 
-   Optionally accepts :high
-                      :low  as a start state.
+   Optionally accepts true or false as a start state, corresponding respectively
+   to high and low.
    
    Cf. pi4clj.gpio/>!digital
 
 
-   ;; pin 0 as :high
+   ;; pin 0 set to high
 
    (pi4clj.gpio/as-digital-out 0
-                               :high)"
+                               true)"
 
   [pin & [state]]
 

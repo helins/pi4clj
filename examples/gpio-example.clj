@@ -19,7 +19,7 @@
                                           state))))
   (gpio/start! :abstract)
   (gpio/as-digital-out 0
-                       :low)
+                       false)
   (gpio/as-digital-in 2
                       :pull     :down
                       :monitor? true))

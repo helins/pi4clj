@@ -1,5 +1,5 @@
 (defproject dvlopt/pi4clj
-            "0.0.0-alpha1"
+            "0.0.0-alpha2"
   :repl-options {:timeout 120000}
   :description  "IO on the Raspberry Pi"
   :url          "https://github.com/dvlopt/pi4clj"
