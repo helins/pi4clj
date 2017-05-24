@@ -542,7 +542,7 @@
 
 (defn wr-gpio-clock
 
-  "Sets the frequency of the given gpio clock pin"
+  "Set the frequency of the given gpio clock pin"
 
   [pin frequency]
 
