@@ -1,5 +1,7 @@
 # pi4clj
 
+![Raspberry Pi](http://i.imgur.com/FeW5Q.png)
+
 Handle GPIOs and I2C (and more to come) on the Raspberry Pi and similar boards.
 
 This library relies on [PI4J](http://www.pi4j.com), more specifically the native bindings to
@@ -24,9 +26,29 @@ the other hand, Oracle's JDK... well, in one word, "licensing". That's why we re
 promising [Zulu Embedded](https://www.azul.com/products/zulu-embedded/) for running java and clojure
 on the raspberry pi. For installation, go [there](https://blog.benjamin-cabe.com/2016/04/05/installing-the-zulu-open-source-java-virtual-machine-on-raspberry-pi).
 
+## Usage
+
+Small examples are provided in the 'examples' folder.
+
+```clj
+(require '[pi4clj.gpio :as gpio])
+
+(gpio/listen :sync
+             (fn [pin state]
+               (when (= pin 2)
+                 (gpio/wr-digital 0
+                                  state))))
+(gpio/scheme :wiring-pi)
+(gpio/digital-out 0
+                  false)
+(gpio/digital-in 2
+                 {:pull     :down
+                  :monitor? true}))
+```
+
 ## Documentation
 
-Small examples are provided in the 'example' folder.
+Small examples are provided in the 'examples' folder.
 
 You will find extensive descriptions of everything you need in the latest
 [api documentation](https://dvlopt.github.io/doc/pi4clj).

@@ -1,34 +1,25 @@
 (ns pi4clj.gpio
 
-  "Everything related to GPIO.
-  
-   Before usage, 'start!' must be called to initialize the board.
-   
-   Before using a pin, it must be set to a mode with any of the
-   'as-...' functions.
+  "Everything related to hardware GPIO. 
 
-   Supported pin modes :
-   
+   Prior to any IO operation, a pin numbering scheme must be chosen
+   (cf. scheme).
+  
+   Inputs and outputs have to be declared via functions :
+
       - digital-in
       - digital-out
-      - hard-pwm-out
-      - soft-pwm-out
-      - soft-tone-out
+      - pwm-out
       - gpio-clock
- 
-   '<!...' functions are for reads
-   '>!...' functions are for writes
-  
-   Digital inputs can be monitored using 'monitor-pin!'.
 
-   The user can register listeners using 'add-listener!' that
-   will be invoked everytime the value of any of the monitored pin
-   changes."
+   rd-xxxx functions are for reading from an input.
+   wr-xxxx functions are for writing to an output.
+
+   A pin can be monitored for any change in value (cf. monitor).
+   The user can register listeners reacting to those changes (cf. listen)."
 
   (:import (com.pi4j.wiringpi Gpio
                               GpioUtil
-                              SoftPwm
-                              SoftTone
                               GpioInterrupt
                               GpioInterruptListener
                               GpioInterruptEvent)))
@@ -48,134 +39,25 @@
 
 
 
-(def ^:private -*setup-mode
-  
-  "Keep track of the chosen setup mode.
+(defn- -enforce-root
 
-   Cf. pi4clj.gpio/start!"
-
-  (atom nil))
-
-
-
-
-(defn setup-mode
-
-  "Returns * setup mode chosen by the user at start
-           * nil if none has been chosen yet
-   
-   Cf. pi4clj.gpio/start!"
+  "Throw an exception if not running as root"
 
   []
 
-  @-*setup-mode)
-
-
-
-
-(defmacro ^:private -enforce-setup
-
-  "Execute forms only if there has been a setup.
-   Otherwise returns :pi4clj.gpio/not-started."
-
-  [& forms]
-
-  `(if @-*setup-mode
-       (do ~@forms)
-       :pi4clj.gpio/not-started))
-
-
-
-
-(def ^:private -*monitored-pins
-  
-  "Keep track of which pins are being monitored for a
-   change in value.
-   
-   Cf. pi4clj.gpio/monitor-pin!"
-
-  (atom #{}))
-
-
-
-
-(defn monitored-pins
-
-  "Get the set containing all the monitored pins.
-
-   Cf. pi4clj.gpio/monitor-pin!"
-
-  []
-
-  @-*monitored-pins)
-
-
-
-
-(defn monitor-pin!
-
-  "Start or stop monitoring for the given pin.
-  
-   Monitoring means that if the value of the pin changes,
-   all user registered listeners will be notified
-   
-   Cf. pi4clj.gpio/add-listener!
-
-   Consumes 1 thread/pin.
-
-   Returns * true
-           * false whether the request succeeded or not
-
-   
-   ;; start monitoring pin 2
-   (pi4clj.gpio/monitor-pin! 2 true)"
-
-  [pin on?]
-
-  (-enforce-setup
-    (locking (str "pi4clj.pin." pin)
-      (boolean (if on?
-                   (when (and (GpioUtil/setEdgeDetection pin
-                                                         GpioUtil/EDGE_BOTH)
-                              (pos? (GpioInterrupt/enablePinStateChangeCallback pin)))
-                     (swap! -*monitored-pins
-                            conj
-                            pin)
-                     true)
-                   (when (pos? (GpioInterrupt/disablePinStateChangeCallback pin))
-                     (swap! -*monitored-pins
-                            disj
-                            pin)
-                     true))))))
-
-
-
-
-(defn shutdown-monitoring!
-
-  "Kill all threads related to pin monitoring.
-   Useful for a shutdown.
-
-   Cf. pi4clj.gpio/monitor-pin!"
-
-  []
-  
-  (-enforce-setup
-    (doseq [pin @-*monitored-pins]
-      (monitor-pin! pin
-                    false))
-    nil))
+  (when (not= (System/getProperty "user.name")
+              "root")
+    (throw (RuntimeException. "Must run as root"))))
 
 
 
 
 (def ^:private -*listeners
 
-  "Map of interrupt listeners registered by the user.
-   Each listener is associated with a keyword given by the user.
+  "Map of keywords -> interrupt listeners registered by the user.
 
-   Cf. pi4clj.gpio/monitor-pin!
-       pi4clj.gpio/add-listener!"
+   Cf. monitor 
+       listen"
    
   (atom {}))
 
@@ -184,8 +66,9 @@
 
 (defn listeners
 
-  "Get a collection of all the keywords for the registered
-   listeners."
+  "Get a set of all the registered listeners.
+
+   Cf. listen"
 
   []
 
@@ -195,148 +78,208 @@
 
 
 
-(defn add-listener!
+(defn listen
 
-  "Register a fn to be executed everytime the value of any
-   of the monitored pin changes. It is given the pin number
-   and the pin state as arguments.
+  "A listener is a function accepting a pin number and its value as
+   arguments. It is associated with a kewyord and is called everytime
+   the value of a monitored pin changes.
 
-   It is registered with a keyword which can later be
-   used to remove the listener.
+   In this fashion, it is easy to register multiple listeners for a single
+   pin or listeners reacting to several ones.
+
+   In order to remove one, explicitly provide nil instead of a function.
+
+   Cf. monitor
    
-   Returns the keyword.
 
-   Cf. pi4clj.gpio/monitor-pin!
-
-   
-   ;; prints the pin number and its current state
-   ;; when any monitored pin changes value
-
-   (pi4clj.gpio/add-listener! :print-temperature
-                              println)"
+   ;; do something when the relevant button is high
+   (pi4clj.gpio/listen :button
+                       (fn [pin value]
+                         (when (and (= pin 2)
+                                    value)
+                           (do-something))))"
 
   [kw f]
 
   (swap! -*listeners
-         assoc
-         kw
-         f)
+         #(if f
+              (assoc %
+                     kw
+                     f)
+              (dissoc %
+                      kw)))
   kw)
 
 
 
 
-(defn remove-listener!
+(def ^:private -*scheme?
+  
+  "Has a pin numbering pin been chosen ?
 
-  "Remove the listener registered with the given keyword.
+   Cf. scheme"
+
+  (atom false))
+
+
+
+
+(defn scheme
+
+  "Start GPIO activity by choosing a pin numbering scheme.
+
+   3 numbering schemes are available :
+
+       :wiring-pi   ;; wiringPi abstracted pin numbering, consistent across
+                       models and revisions (recommended)
+       :broadom     ;; broadcom pin numbering, might and will change across
+                       models and revisions
+       :sys         ;; same as :broadcom but can be executed without sudo
+
+   <!> :wiring-pi and :broadcom must be run as root because IO functions are
+       writing directly to /dev/mem.
+  
+       :sys doesn't need to but is slower, not every IO functions is available
+       and pins have to be exported and prepared in advance. It is recommended
+       only when the program cannot run as root and IO is not too complex.
+
+   Once a scheme is chosen, it cannot be changed. Calling this function again
+   won't do anything.
+
+   IO functions always enforce that a scheme is chosen. If there isn't any, this
+   function will be called with the :wiring-pi scheme. Nonetheless, it is good
+   practise to always explicitly call this function at the start of the program."
+
+  [scheme]
+
+  ;; GpioInterrupt provides better native bindings than wiringPi
+
+  (when-not @-*scheme? 
+    (if (compare-and-set! -*scheme?
+                          false
+                          true)
+        (do (when (#{:wiring-pi
+                     :broadcom} scheme)
+              (-enforce-root))
+            (case scheme
+              :wiring-pi (Gpio/wiringPiSetup)
+              :broadcom  (Gpio/wiringPiSetupGpio)
+              :sys       (Gpio/wiringPiSetupSys))
+            (GpioInterrupt/addListener
+              (proxy [GpioInterruptListener] []
+                (pinStateChange [^GpioInterruptEvent ev]
+                  (let [pin   (.getPin   ev)
+                        state (.getState ev)]
+                    (doseq [listener (vals @-*listeners)] (listener pin
+                                                                    state))))))
+            nil)
+        (recur scheme))))
+  
+
+
+
+(defmacro enforce-scheme
+
+  "Execute the given forms after ensuring that a numbering scheme
+   has been chosen, defaulting to :wiring-pi if none has been
+   explicitly selected.
+
+   Cf. scheme"
+
+  [& forms]
+
+  `(do (scheme :wiring-pi)
+       ~@forms))
+
+
+
+
+(def ^:private -*monitored
+  
+  "All the pins that are being monitored for a change in value.
    
-   Returns the keyword.
-   
+   Cf. monitor"
 
-   (pi4clj.gpio/remove-listener! :sync-led)"
-
-  [kw]
-
-  (swap! -*listeners
-         dissoc
-         kw)
-  kw)
+  (atom #{}))
 
 
 
 
-(defn remove-all-listeners!
+(defn monitored
 
-  "Remove all listeners.
-   
-   <!> does not turn off monitoring, merely delete listeners
-       (cf. pi4clj/shutdown-monitoring!)"
+  "Get a set containing all the monitored pins.
+
+   Cf. monitor"
 
   []
 
-  (reset! -*listeners
-          {}))
+  @-*monitored)
 
 
 
 
-(def ^:private -main-listener
+(defn monitor
 
-  "Listener listening for all interrupts and forwarding to
-   the user defined listeners"
-
-  (proxy [GpioInterruptListener] []
-    (pinStateChange [^GpioInterruptEvent ev]
-      (let [pin   (.getPin   ev)
-            state (.getState ev)]
-        (doseq [listener (vals @-*listeners)] (listener pin
-                                                        state))))))
-
-
-
-(defn start!
-
-  "Start GPIO activity. Must be called before using GPIOs.
-
-   3 setup modes are available:
-
-       :abstract    ;; wiringPi abstracted pin numbering (recommended)
-       :gpio        ;; broadcom pin numbering
-       :sys         ;; same as :gpio but can be executed without sudo
-                       slightly slower but more importantly, pins have to
-                       be exported and prepared in advance
-   
-   Once the mode is set, it can't be changed.
-
-   Returns * the given mode
-           * another mode if another one has already been set"
-
-  [chosen-mode]
-
-  ;; if needed, call the apropriate setup native function
-  ;; and register a single interrupt listener that will call
-  ;; user defined listeners from this library
-
-  ;; The :physical mode is not available because it would probably
-  ;; break monitoring.
-
-  ;; GpioInterrupt provides native bindings different from wiringPi
-
-  (or @-*setup-mode
-      (do (case chosen-mode
-            :abstract (Gpio/wiringPiSetup)
-            :gpio     (Gpio/wiringPiSetupGpio)
-            ;:physical (Gpio/wiringPiSetupPhys)
-            :sys      (Gpio/wiringPiSetupSys))
-          (reset! -*setup-mode
-                  chosen-mode)
-          (GpioInterrupt/addListener -main-listener)
-          chosen-mode)))
-
-
-
-
-(defn set-pull-resistance
-
-  "Set pull resistance to :off
-                          :down
-                          :up   for the given digital input.
-   
-   <!> does not work in :sys numbering mode."
-
-  [pin resistance]
+  "Start or stop monitoring  the given pin.
   
-  (-enforce-setup
-    (Gpio/pullUpDnControl pin
-                          (case resistance
-                            :off  0
-                            :down 1
-                            :up   2))))
+   Monitoring means that if the value of the pin changes, all users registered
+   listeners will be called.
+
+   Returns a boolean indicating whether the request succeeded or not.
+
+   <!> Consumes 1 thread/pin.
+
+   Cf. listen
+   
+   ;; start monitoring pin 2
+   (pi4clj.gpio/monitor 2 true)"
+
+  [pin on?]
+
+  (enforce-scheme
+    (locking (str "pi4clj.pin." pin)
+      (boolean (if on?
+                   (when (and (GpioUtil/setEdgeDetection pin
+                                                         GpioUtil/EDGE_BOTH)
+                              (pos? (GpioInterrupt/enablePinStateChangeCallback pin)))
+                     (swap! -*monitored
+                            conj
+                            pin)
+                     true)
+                   (when (pos? (GpioInterrupt/disablePinStateChangeCallback pin))
+                     (swap! -*monitored
+                            disj
+                            pin)
+                     true))))))
 
 
 
 
-(defn <!analog
+(defn shutdown-monitoring
+
+  "Kill all threads related to pin monitoring.
+
+   Useful for a shutdown.
+
+   Cf. monitor"
+
+  []
+  
+  (enforce-scheme
+    (doseq [pin @-*monitored]
+      (monitor pin
+               false))
+    (if (empty? @-*monitored)
+        nil
+        (recur))))
+
+
+
+
+;; Analog
+
+
+(defn rd-analog
 
   "Read an int from an analog input.
 
@@ -346,13 +289,13 @@
   
   [pin]
 
-  (-enforce-setup
+  (enforce-scheme
     (Gpio/analogRead pin)))
 
 
 
 
-(defn >!analog
+(defn wr-analog
 
   "Write an int to an analog output.
 
@@ -362,32 +305,35 @@
 
   [pin value]
 
-  (-enforce-setup
+  (enforce-scheme
     (Gpio/analogWrite pin value)))
 
 
 
 
-(defn <!digital
+;; Digital
+
+
+(defn rd-digital
 
   "Read true or false from a digital input, corresponding respectively to
    high and low"
 
   [pin]
 
-  (-enforce-setup
-    (boolean (Gpio/digitalRead pin))))
+  (enforce-scheme
+    (not (zero? (Gpio/digitalRead pin)))))
 
 
 
 
-(defn >!digital
+(defn wr-digital
   
   "Set a digital output to true or false, corresponding respectively to high and low"
 
   [^Long pin state]
 
-  (-enforce-setup
+  (enforce-scheme
     (Gpio/digitalWrite pin
                        (case state
                          false 0
@@ -396,280 +342,105 @@
 
 
 
-(defn toggle
+(defn tg-digital
 
-  "Toggle a digital output and returns the new state"
+  "Toggle a digital output and return the new state"
 
   [pin]
 
-  (-enforce-setup
-    (let [new-state (not (<!digital pin))]
-      (>!digital pin
-                 new-state)
+  (enforce-scheme
+    (let [new-state (not (rd-digital pin))]
+      (wr-digital pin
+                  new-state)
       new-state)))
 
 
 
 
-(defn >!gpio-clock
-
-  "Sets the frequency of the given gpio clock pin"
-
-  [pin frequency]
-
-  (-enforce-setup
-    (Gpio/gpioClockSet pin
-                       frequency)))
-
-
-
-
-(defn >!hard-pwm
-
-  "Write an int value to the PWM register for the given pin.
-   The Raspberry Pi has a default range of 1024.
-   
-   Cf. pi4clj.gpio/set-hard-pwm-config"
-
-  [pin value]
-
-  (-enforce-setup
-    (Gpio/pwmWrite pin
-                   value)))
-
- 
-
-
-(defn >!soft-pwm
-
-  "Write an int to a software pwm output.
-   Within the limits of the declared range.
-   
-   Cf. pi4clj.gpio/as-soft-pwm-out"
-
-  [pin value]
-
-  (-enforce-setup
-    (SoftPwm/softPwmWrite pin
-                          value)))
-
-
-
-
-(defn >!soft-tone
-
-  "Change the frequence of the given software tone pin.
-   
-   Maximum is 5000."
-
-  [pin frequency]
-
-  (-enforce-setup
-    (SoftTone/softToneWrite pin
-                            frequency)))
-
-
-
-
-(defn as-digital-out
+(defn digital-out
 
   "Declare the given pin as a digital output.
 
-   Optionally accepts true or false as a start state, corresponding respectively
-   to high and low.
+   Optionally accepts true or false as a start value.
    
-   Cf. pi4clj.gpio/>!digital
+   Cf. pi4clj.gpio/wr-digital
 
 
    ;; pin 0 set to high
 
-   (pi4clj.gpio/as-digital-out 0
-                               true)"
+   (pi4clj.gpio/digital-out 0
+                            true)"
 
   [pin & [state]]
 
-  (-enforce-setup
+  (enforce-scheme
     (Gpio/pinMode pin
                   Gpio/OUTPUT)
     (when state
-      (>!digital pin
-                 state))
+      (wr-digital pin
+                  state))
     nil))
 
 
 
 
-(defn as-digital-in
+(defn pull-resistance
+
+  "Set pull resistance to :off
+                          :down
+                          :up   for the given digital input.
+   
+   <!> Does not work in :sys numbering scheme."
+
+  [pin resistance]
+  
+  (enforce-scheme
+    (Gpio/pullUpDnControl pin
+                          (case resistance
+                            :off  0
+                            :down 1
+                            :up   2))))
+
+
+
+(defn digital-in
 
   "Declare the given pin as a digital input.
 
    Can set pull resistance via :pull
            monitoring      via :monitor?
 
-   Cf. pi4clj.gpio/set-pull-resistance
-       pi4clj.gpio/monitor-pin!
+   Cf. pi4clj.gpio/pull-resistance
+       pi4clj.gpio/monitor
 
 
    ;; pin 2, monitored and pulled-down
    
-   (pi4clj.gpio/as-digital-in 2
-                              :pull       :down
-                              :monitored? true)"
+   (pi4clj.gpio/digital-in 2
+                           {:pull       :down
+                            :monitored? true})"
 
-  [pin & {:keys [pull
-                 monitor?]}]
+  [pin & [{:keys [pull
+                  monitor?]}]]
 
-  (-enforce-setup
+  (enforce-scheme
     (Gpio/pinMode pin
                   Gpio/INPUT)
     (when-not (nil? pull)
-      (set-pull-resistance pin
-                           pull))
+      (pull-resistance pin
+                       pull))
     (when-not (nil? monitor?)
-      (monitor-pin! pin
-                    monitor?))
+      (monitor pin
+               monitor?))
     nil))
 
 
 
 
-(defn as-gpio-clock
-
-  "Declare the given pin as gpio clock.
-
-   Optionally accepts a frequency start value.
-
-   Cf. pi4clj.gpio/>!gpio-clock"
-
-  [pin & [frequency]]
-
-  (-enforce-setup
-    (Gpio/pinMode pin
-                  Gpio/GPIO_CLOCK)
-    (when frequency
-      (>!gpio-clock pin
-                    frequency))))
+;; PWM
 
 
-
-
-(defn as-hard-pwm-out
-
-  "Declare the given pin as a hardware pwm output.
-   An optional start value can be provided.
-   
-   Cf. pi4clj.gpio/set-hard-pwm-config
-       pi4clj.gpio/>!hard-pwm"
-
-  [pin & [value]]
-
-  (-enforce-setup
-    (Gpio/pinMode pin
-                  Gpio/PWM_OUTPUT)
-    (when value
-      (>!hard-pwm pin
-                  value))
-    nil))
-
-
-
-
-(defn as-soft-pwm-out
-
-  "Declare the given pin as software pwm output.
-   
-   Creates thread and emulates mark:space pwm.
-   The pulse width is fixed at 100µs for efficiency.
-   
-   Unlike hardware pwm outputs, the range can be
-   different for each pin. The default and recommended
-   range is 100.
-
-   The frequency is a function of the pulse width and
-   the range :
-
-       recommended range x pulse width = period
-
-       100 x 100µs = 10 000µs  =>  100Hz
-   
-   Thus, for a higher frequency at the expense of resolution,
-   decrease range.
-   
-   Cf. pi4clj.gpio/set-hard-pwm-config
-   
-   
-   ;; pin 3 with a value of 50 and a default range of 100
-   (pi4clj.gpio/as-soft-pwm-out! 3 :value 50)"
-
-  [pin & {pwm-range :range
-          pwm-value :value
-          :or   {pwm-range 100
-                 pwm-value   0}}]
-  
-  (-enforce-setup
-    (SoftTone/softToneStop pin)
-    (SoftPwm/softPwmCreate pin
-                           pwm-value
-                           pwm-range)
-    nil))
-
-
-
-
-(defn stop-soft-pwm
-
-  "Stop using the given pin as a software pwm output
-   and kill the related thread.
-   
-   Cf. pi4clj.gpio/as-soft-pwm-out"
-
-  [pin]
-
-  (-enforce-setup
-    (SoftPwm/softPwmStop pin)))
-
-
-
-
-(defn as-soft-tone-out
-
-  "Declare the given pin as a software tone output.
-   
-   Create a thread and emulate a tone output.
-   
-   For efficiency reasons, the pulse width is 100µs.
-   Hence the maximum frequence is :
-
-       1 / 0.0002 = 5KHz"
-   
-
-  [pin & [frequency]]
-
-  (-enforce-setup
-    (SoftPwm/softPwmStop pin)
-    (SoftTone/softToneCreate pin)
-    (when frequency
-      (SoftTone/softToneWrite pin
-                              frequency))))
-
-
-
-
-(defn stop-soft-tone
-
-  "Stop using the given pin as a software tone output
-   and kill the related thread.
-
-   Cf. pi4clj.gpio/as-soft-tone-out"
-
-  [pin]
-
-  (-enforce-setup
-    (SoftTone/softToneStop pin)))
-          
-
-
-(defn set-hard-pwm-config
+(defn config-pwm
 
   "Hardware pwm outputs can be modified by 3 options :
    
@@ -708,19 +479,93 @@
 
        frequency = 19.2MHz / clock-divisor / range
 
-   <!> Doesn't work in :sys setup mode."
+   <!> Does not work in :sys numbering scheme."
 
-  [& {pwm-mode  :mode
-      divisor   :clock-divisor
-      pwm-range :range}]
+  [& [{:as   config
+       :keys [mode
+              clock-divisor
+              range]}]]
 
-  (-enforce-setup
-    (when pwm-mode
-      (Gpio/pwmSetMode (case pwm-mode
+  (enforce-scheme
+    (when mode
+      (Gpio/pwmSetMode (case mode
                          :balanced   Gpio/PWM_MODE_BAL
                          :mark-space Gpio/PWM_MODE_MS)))
-    (when divisor
-      (Gpio/pwmSetClock divisor))
-    (when pwm-range
-      (Gpio/pwmSetRange pwm-range))
+    (when clock-divisor
+      (Gpio/pwmSetClock clock-divisor))
+    (when range
+      (Gpio/pwmSetRange range))
+    config))
+
+
+
+
+(defn wr-pwm
+
+  "Write an int value to the PWM register for the given pin.
+   The Raspberry Pi has a default range of 1024.
+   
+   Cf. pi4clj.gpio/config-pwm"
+
+  [pin value]
+
+  (enforce-scheme
+    (Gpio/pwmWrite pin
+                   value)))
+
+
+
+
+(defn pwm-out
+
+  "Declare the given pin as a pwm output.
+   An optional start value can be provided.
+   
+   Cf. pi4clj.gpio/config-pwm
+       pi4clj.gpio/wr-pwm"
+
+  [pin & [value]]
+
+  (enforce-scheme
+    (Gpio/pinMode pin
+                  Gpio/PWM_OUTPUT)
+    (when value
+      (wr-pwm pin
+              value))
     nil))
+
+
+
+
+;; Gpio clock
+
+
+(defn wr-gpio-clock
+
+  "Sets the frequency of the given gpio clock pin"
+
+  [pin frequency]
+
+  (enforce-scheme
+    (Gpio/gpioClockSet pin
+                       frequency)))
+
+
+
+
+(defn gpio-clock
+
+  "Declare the given pin as gpio clock.
+
+   Optionally accepts a frequency start value in Hertz.
+
+   Cf. pi4clj.gpio/wr-gpio-clock"
+
+  [pin & [frequency]]
+
+  (enforce-scheme
+    (Gpio/pinMode pin
+                  Gpio/GPIO_CLOCK)
+    (when frequency
+      (wr-gpio-clock pin
+                     frequency))))

@@ -8,6 +8,7 @@
 
 
 
+
 (defn -main
 
   [& args]
@@ -19,7 +20,7 @@
                   [0xac 0x0c]        ;; 2 bytes config
                   0x51])             ;; restart slave
         (println "Temperature ="
-                 (i2c/red-reg bus
+                 (i2c/rd-reg bus
                               0x48
                               0xaa
                               2))    ;; read the temperature as 2 bytes from register 0xaa
