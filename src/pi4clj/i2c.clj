@@ -2,21 +2,20 @@
 
   "Everything related to I2C.
 
-   Open a bus and simply use the fns.
+   Open a bus and simply use the fns."
 
-   <!> Reads and writes are NOT thread-safe !
-       Concurrency can be achieved through agents, core.async,
-       manifold... Use what you need."
-
-  (:import com.pi4j.jni.I2C))
+  (:import java.io.RandomAccessFile
+           com.pi4j.io.file.LinuxFile))
 
 
 
+
+;;;;;;;;;;
 
 
 (defn- -coll->byte-array
 
-  "Transform a collections of integers into an array of bytes
+  "Convert a collections of integers into an array of bytes
    
    (pi4clj.i2c/-coll->byte-array [0xac 0x0c])"
 
@@ -28,200 +27,202 @@
 
 
 
-(defn- -byte-array->vec
+(defn- -byte-array->seq
 
-  "Transform an array of bytes into a collection of 'unsigned' integers"
+  "Convert an array of bytes into a collection of 'unsigned' integers"
 
   [byts]
 
   (map #(bit-and %
-                 0xFF)
+                 0xff)
        byts))
 
 
 
 
+;;;;;;;;;;
+
+
 (defn open-bus
 
-  "Given a path, open a I2C bus. This bus can then be
-   used in the fns provided by this namespace.
+  "Given a path, open a I2C bus. This bus can then be used in the fns provided by this namespace.
 
    Returns nil in case of failure.
 
-   <!> Reads and writes are NOT thread-safe !
-       Concurrency can be achieved through agents, core.async,
-       manifold... Use whatever you need.
+   <!> A bus is basically a file handle and is NOT thread-safe by itself !
+       For concurrency, the user must manage the access using locks or a prefered method.
 
    ex.
-     (pi4clj.i2c/open-bus \"/dev/i2c-1\")"
+     (open-bus \"/dev/i2c-1\")"
+
+  ^LinuxFile
 
   [bus-path]
 
-  (let [fd (I2C/i2cOpen bus-path)]
-    (when-not (neg? fd)
-      {:fd   fd
-       :path bus-path})))
+  (try (LinuxFile. bus-path
+                   "rw")
+    (catch Throwable _
+      nil)))
 
 
 
 
 (defn close-bus
 
-  "Cleanly close an I2C bus previously opened by
-   'pi4clj.i2c/open-bus'.
+  "Cleanly close an I2C bus"
 
-   Should be called when you are done with it.
+  [^LinuxFile bus]
 
-   Returns true or false whether it suceeded or not."
+  (when bus
+    (.close ^LinuxFile bus)))
 
-  [{:keys [fd]
-    :as   bus}]
 
-  (zero? (I2C/i2cClose fd)))
+
+
+(defn select-slave
+
+  "Select a slave device on the given I2C bus.
+
+   ex.
+     (select-slave bus
+                   0x48)"
+
+  [^LinuxFile bus slave-address]
+
+  (.ioctl bus
+          0x0703 ; slave commmand
+          (bit-and slave-address
+                   0xff)))
 
 
 
 
 (defn wr
 
-  "Given an I2C bus, write something.
+  "Given an I2C bus, write something a single byte or a collection of them.
 
-   slave-address : an int representing a slave
-   byte+ : an int representing a single byte
-         | a collection of them
+   In this context, a byte is simply an integer.
 
-   Returns what has been written, nil in case of failure."
+   Returns true for success and false for failure.
+  
+   ex.
+     (wr bus
+         [0xac 0x0c])"
 
-  [{:keys [fd]
-    :as   bus} slave-address byte+]
+  [^RandomAccessFile bus byte+]
 
-  (when (and fd
-             (zero? (if (coll? byte+)
-                        (I2C/i2cWriteBytesDirect fd
-                                                 slave-address
-                                                 (count byte+)
-                                                 0
-                                                 (-coll->byte-array byte+))
-                        (I2C/i2cWriteByteDirect fd
-                                                slave-address
-                                                (unchecked-byte byte+)))))
-    byte+))
+  (try (if (coll? byte+)
+         (.write bus
+                 (-coll->byte-array byte+))
+         (.writeByte bus
+                     byte+))
+       true
+    (catch Throwable _
+      (println :error _)
+      false)))
 
 
 
 
 (defn wr-reg
 
-  "Same as 'pi4clj.i2c/wr' but writes to a specific register provided
-   as an int"
+  "Prior to writing, select a registry.
 
-  [{:keys [fd]
-    :as   bus} slave-address register byte+]
+   Cf. wr
+  
+   ex.
+     (wr bus
+         0xaa
+         [0xac 0x0c])"
 
-  (when (and fd
-             (zero? (if (coll? byte+)
-                        (I2C/i2cWriteBytes fd
-                                           slave-address
-                                           register
-                                           (count byte+)
-                                           0
-                                           (-coll->byte-array byte+))
-                        (I2C/i2cWriteByte fd
-                                          slave-address
-                                          register
-                                          (unchecked-byte byte+)))))
-    byte+))
+  [bus register byte+]
+
+  (wr bus
+      (if (coll? byte+)
+        (concat [register]
+                byte+)
+        [register byte+])))
 
 
 
 
 (defn wr+
 
-  "Sometimes, multiple writes have to been done sequentially and
-   not at once, for instance when configuring certains slaves.
+  "Write chunks of byte(s) sequentially and not at once.
    
-   This fn calls 'pi4clj.i2c/wr' for every element in coll-byte+,
-   one at a time, and returns a collection of what has been successfully
-   writen."
+   Useful for configuration and such things.
 
-  [bus slave-address coll-byte+]
+   Cf. wr
 
-  (let [n (reduce (fn [n byte+] (if (wr bus
-                                        slave-address
-                                        byte+)
-                                    (inc n)
-                                    (reduced n)))
-                  0
-                  coll-byte+)]
-    (cond (zero? n)
-          nil
+   ex.
+     (wr+ bus
+          [0xac         ;; stop device
+           [0xac 0x0c]  ;; 2 bytes config
+           0x51])       ;; restart device"
+  
+  [bus coll-byte+]
 
-          (= n
-             (count coll-byte+))
-          coll-byte+
-
-          ::else
-          (take n
-                coll-byte+))))
+  (if (seq coll-byte+)
+    (if (wr bus
+            (first coll-byte+))
+      (recur bus
+             (rest coll-byte+))
+      false)
+    true))
 
 
 
 
 (defn rd
 
-  "Given an I2C bus, read 1 or 'n' bytes from a slave
-   adress provided as an int"
+  "Given an I2C bus, read 1 or n bytes.
 
-  ([{:keys [fd]
-     :as   bus} slave-address]
-   
-   (when-let [byt (and fd
-                       (I2C/i2cReadByteDirect fd
-                                              slave-address))]
-     (when-not (neg? byt)
-       byt)))
+   Returns nil if something goes wrong.
+  
+   ex.
+     (rd bus
+         2)"
+
+  ([^RandomAccessFile bus]
+
+   (try (.readUnsignedByte bus)
+     (catch Throwable _
+       nil)))
 
 
-  ([{:keys [fd]
-     :as   bus} slave-address n]
+  ([^RandomAccessFile bus n]
 
-   (when-let [ba (and fd
-                      (byte-array n))]
-     (when-not (neg? (I2C/i2cReadBytesDirect fd
-                                             slave-address
-                                             n
-                                             0
-                                             ba))
-       (-byte-array->vec ba)))))
+   (try (let [ba (byte-array n)]
+          (.read bus
+                 ba)
+          (-byte-array->seq ba))
+     (catch Throwable _
+       nil))))
 
 
 
 
 (defn rd-reg
 
-  "Same as 'pi4clj.i2c/rd' but reads from a specific register provided
-   as an int"
+  "Prior to reading, select a registry.
 
-  ([{:keys [fd]
-     :as   bus} slave-address register]
+   Cf. rd
 
-   (when-let [byt (and fd
-                       (I2C/i2cReadByte fd
-                                        slave-address
-                                        register))]
-     (when-not (neg? byt)
-       byt)))
+   ex.
+     (rd-reg bus
+             0xaa
+             2)"
+
+  ([bus reg]
+
+   (when (wr bus
+             reg)
+     (rd bus)))
 
 
-  ([{:keys [fd]
-     :as   bus} slave-address register n]
+  ([bus reg n]
 
-   (when-let [ba (and fd
-                      (byte-array n))]
-     (when-not (neg? (I2C/i2cReadBytes fd
-                                       slave-address
-                                       register
-                                       n
-                                       0
-                                       ba))
-       (-byte-array->vec ba)))))
+   (when (wr bus
+             reg)
+     (rd bus
+         n))))
