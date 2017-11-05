@@ -2,17 +2,19 @@
 
 ![Raspberry Pi](http://i.imgur.com/FeW5Q.png)
 
-Handle GPIOs and I2C (and more to come) on the Raspberry Pi and similar boards.
+Handles GPIOs (and more to come) on the Raspberry Pi and similar boards.
 
-This library relies on [PI4J](http://www.pi4j.com), more specifically the native bindings to
-[Gordon Henderson's wiringPi](http://www.wiringpi.com). It aims to be straightforward and not
-very opiniated. No black magic involved.
+Uses the JNI bindings to the excellent [wiringPi](http://www.wiringpi.com)
+provided by [PI4J](http://www.pi4j.com). No black magic involved.
+
+For [I²C](https://en.wikipedia.org/wiki/I%C2%B2C), refer to
+[Icare](https://github.com/dvlopt/icare), a multi platform clojure library.
 
 ## Installation
 
 No prior installation is required, simply add this to your dependencies :
 ```clj
-[dvlopt/pi4clj "0.0.0-alpha2"]
+[dvlopt/pi4clj "0.0.0-alpha4"]
 ```
 
 Interactive development on the board itself is a bliss. Nonetheless, lein's repl can be very slow
@@ -24,45 +26,48 @@ to start and might even timeout. Simply set a higher timeout than the default 30
 OpenJDK isn't optimized for ARM at all and is an order of magnitude slower than Oracle's JDK. On
 the other hand, Oracle's JDK... well, in one word, "licensing". That's why we recommend the very
 promising [Zulu Embedded](https://www.azul.com/products/zulu-embedded/) for running java and clojure
-on the raspberry pi. For installation, go [there](https://blog.benjamin-cabe.com/2016/04/05/installing-the-zulu-open-source-java-virtual-machine-on-raspberry-pi).
+on the Raspberry Pi. For installation, go [there](https://blog.benjamin-cabe.com/2016/04/05/installing-the-zulu-open-source-java-virtual-machine-on-raspberry-pi).
 
 ## Usage
 
-Small examples are provided in the 'examples' folder.
+Read the full [api documentation](https://dvlopt.github.io/doc/pi4clj).
 
 ```clj
 (require '[pi4clj.gpio :as gpio])
 
-(gpio/listen :sync
-             (fn [pin state]
-               (when (= pin 2)
-                 (gpio/wr-digital 0
-                                  state))))
+
+;; always start your programs by choosing a pin numbering scheme
 (gpio/scheme :wiring-pi)
-(gpio/digital-out 0
-                  false)
-(gpio/digital-in 2
-                 {:pull     :down
-                  :monitor? true}))
-```
 
-## Documentation
 
-You will find extensive descriptions of everything you need in the latest
-[api documentation](https://dvlopt.github.io/doc/pi4clj).
+;; let's setup an "interrupt" syncing the state of pin 2 and pin 0
+(gpio/edge-handler :sync-pins
+                   (fn handler [pin state]
+                     (when (= pin
+                              2)
+                       (gpio/digital 0
+                                     state))))
 
-If you are browsing an older version, try generating the auto-doc yourself
-```
-cd your_project/dir
-lein codox
-cd doc/codox
+
+;; declare pin 0 as a digital output with a low value
+(-> 0
+    (gpio/mode :output/digital)
+    (gpio/digital false))
+
+
+;; declare pin 0 as a digital input with pull resitance set to :down and monitored
+;; for edge detection (going from false to true and vice-versa).
+(-> 2
+    (gpio/mode :input/digital)
+    (gpio/pull-resistance :down)
+    (gpio/edge-detection :both))
 ```
 
 ## Status
 
-In alpha, breaking changes are very much expected for the time being.
+In alpha, breaking changes might occur. Other than that, it is already being used in production.
 
-More capabilities, such as SPI and shift registers, will be added.
+More capabilities, such as SPI and shift registers, will be added when needed.
 
 While PI4J supports other boards than the Raspberry family, this library hasn't been tested for
 anything else. Because it is lightweight, it should work just fine.
