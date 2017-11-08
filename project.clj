@@ -1,5 +1,5 @@
 (defproject dvlopt/pi4clj
-            "0.0.0-alpha4"
+            "0.0.0-alpha5"
 
   :description  "IO on the Raspberry Pi"
   :url          "https://github.com/dvlopt/pi4clj"
