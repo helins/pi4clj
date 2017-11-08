@@ -47,7 +47,7 @@
    
    Cf. `edge-detection`"
 
-  (atom #{}))
+  (atom {}))
 
 
 

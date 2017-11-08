@@ -14,7 +14,7 @@ For [I²C](https://en.wikipedia.org/wiki/I%C2%B2C), refer to
 
 No prior installation is required, simply add this to your dependencies :
 ```clj
-[dvlopt/pi4clj "0.0.0-alpha4"]
+[dvlopt/pi4clj "0.0.0-alpha6"]
 ```
 
 Interactive development on the board itself is a bliss. Nonetheless, lein's repl can be very slow
@@ -30,7 +30,7 @@ on the Raspberry Pi. For installation, go [there](https://blog.benjamin-cabe.com
 
 ## Usage
 
-Read the full [api documentation](https://dvlopt.github.io/doc/pi4clj).
+Read the full [API](https://dvlopt.github.io/doc/pi4clj).
 
 ```clj
 (require '[pi4clj.gpio :as gpio])
