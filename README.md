@@ -8,6 +8,9 @@ provided by [PI4J](http://www.pi4j.com). No black magic involved.
 For using [I²C](https://en.wikipedia.org/wiki/I%C2%B2C), refer to
 [Icare](https://github.com/dvlopt/icare), a multi platform clojure library.
 
+For using the serial port, refer to [Clotty](https://github.com/dvlopt/clotty),
+a multi plaform clojure wrapper around [RxTx](https://github.com/openmuc/jrxtx).
+
 ## Installation
 
 No prior installation is required, simply add this to your dependencies :
@@ -69,7 +72,7 @@ Hence, we recommend the very promising [Zulu
 Embedded](https://www.azul.com/products/zulu-embedded/).
 
 For installation, you will find inspiration
-[there](https://blog.benjamin-cabe.com/2016/04/05/installing-the-zulu-open-source-java-virtual-machine-on-raspberry-pi).
+[hhere](https://blog.benjamin-cabe.com/2016/04/05/installing-the-zulu-open-source-java-virtual-machine-on-raspberry-pi).
 
 ## Development
 
@@ -78,7 +81,7 @@ We recommend
 for keeping your files on the Raspberry Pi while being able to edit them on your
 dev machine.
 
-Starting the repl in this fashion will make it available to the local network :
+Starting the repl in this fashion will make it available on the local network :
 ```
 $ lein repl :start :host 0.0.0.0 :port 4000
 ```

@@ -54,7 +54,7 @@
 
 (def ^:private -*edge-handlers
 
-  "Atom containing edge handlers, ie. a map of keywords to fns registesred by the user.
+  "Atom containing edge handlers, ie. a map of keywords to fns registered by the user.
 
    Cf. `edge-detection`
        `edge-handler`"
@@ -68,6 +68,7 @@
 
 
 (declare edge-detection)
+
 
 (.addShutdownHook (Runtime/getRuntime)
                   (Thread. ^Runnable (fn shutdown-edge-detection []
@@ -151,9 +152,9 @@
      One of #{:input/digital
               :output/digital
               :output/pwm
-              :outpuw/gpio-clock}
+              :output/gpio-clock}
 
-   => pin"
+   => `pin`"
 
   [pin mode]
 
@@ -205,8 +206,8 @@
    <!> Does not work in :sys numbering scheme.
 
 
-   @ ?config
-     {:?mode
+   @ config
+     {:mode (optional)
        Two pwm modes are available, modifying how the duty cycle is modeled.
        Ex. Let us say a duty cycle of 25% :
 
@@ -219,10 +220,10 @@
             ___ ___ ___ ___
 
 
-      :?clock-divisor
+      :clock-divisor (optional)
        PWM clock, base is 19.2MHz.
 
-      :?range
+      :range (optional)
        The pwm clock increments a counter at each pulse. When this counter hits
        the value given by the range (default is 1024), it resets to 0 and it is
        equivalent to a period. The range is therefore the number of pulses per
@@ -241,19 +242,19 @@
        frequency = 19.2MHz / clock-divisor / range"
 
 
-  [{:as   ?config
-    :keys [?mode
-           ?clock-divisor
-           ?range]}]
+  [{:as   config
+    :keys [mode
+           clock-divisor
+           range]}]
 
-  (when ?mode
+  (when mode
     (Gpio/pwmSetMode (case mode
                        :balanced   Gpio/PWM_MODE_BAL
                        :mark-space Gpio/PWM_MODE_MS)))
-  (when ?clock-divisor
-    (Gpio/pwmSetClock ?clock-divisor))
-  (when ?range
-    (Gpio/pwmSetRange ?range))
+  (when clock-divisor
+    (Gpio/pwmSetClock clock-divisor))
+  (when range
+    (Gpio/pwmSetRange range))
   nil)
 
 
@@ -476,13 +477,13 @@
   "Registers or removes an edge handler.
 
    A handler reacts to anything resulting from `edge-detection`. Hence, it is easy
-   to write handler reacting to several pins.
+   to write handlers reacting to several pins.
 
 
    @ key
      Key for the given handler.
 
-   @ ?handler
+   @ handler
      One of :
 
        nil
@@ -502,17 +503,17 @@
                                      2))
                          ...)))"
 
-  [key ?handler]
+  [key handler]
 
   (swap! -*edge-handlers
          (fn swap-handlers [handlers]
            (cond
-             (fn? ?handler)  (assoc handlers
-                                    key
-                                    ?handler)
-             (nil? ?handler) (dissoc handlers
-                                     key)
-             :else           handlers)))
+             (fn? handler)  (assoc handlers
+                                   key
+                                   handler)
+             (nil? handler) (dissoc handlers
+                                    key)
+             :else          handlers)))
   key)
 
 

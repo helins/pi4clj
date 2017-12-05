@@ -26,16 +26,16 @@
                 nil))
 
 
-  ([pin {:as   ?config
-         :keys [?range
-                ?value]
-         :or   {?range 100
-                ?value 0}}]
+  ([pin {:as   config
+         :keys [range
+                value]
+         :or   {range 100
+                value 0}}]
    
    (SoftTone/softToneStop pin)
    (SoftPwm/softPwmCreate pin
-                          ?value
-                          ?range)
+                          value
+                          range)
    pin))
 
 
@@ -79,7 +79,7 @@
 
         Configurable with a map such as :
 
-          {:?range
+          {:range
             Unlike hardware PWM ouputs, the range can be different for each
             pin (default is 100, recommended).
 
@@ -94,7 +94,7 @@
 
             Cf. pi4clj.gpio/config-pwm
 
-           :?value
+           :value
             Initial value.}
 
 
@@ -107,7 +107,7 @@
             1 / 0.0002 = 5KHz
 
 
-    @ ?config
+    @ config
       Cf. @ mode
 
 
@@ -120,14 +120,14 @@
          nil))
 
 
-  ([pin mode ?config]
+  ([pin mode config]
 
    (condp identical?
           mode
      :none        (do (SoftPwm/softPwmStop pin)
                       (SoftTone/softToneStop pin))
      :output/pwm  (-pwm-output pin
-                               ?config)
+                               config)
      :output/tone (-tone-output pin))
    pin))
 

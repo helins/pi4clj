@@ -1,5 +1,5 @@
 (defproject dvlopt/pi4clj
-            "0.0.0-alpha6"
+            "0.0.0-alpha7"
 
   :description  "IO on the Raspberry Pi"
   :url          "https://github.com/dvlopt/pi4clj"
@@ -8,10 +8,11 @@
   :repositories [["sonatype" {:url    "http://oss.sonatype.org/content/groups/public"
                               :update :always}]]
   :dependencies [[com.pi4j/pi4j-core "1.2-SNAPSHOT"]]
-  :profiles     {:dev {:source-paths ["dev"]
+  :profiles     {:dev {:source-paths ["dev"
+                                      "examples"]
                        :main         user
                        :repl-options {:timeout 120000}
-                       :dependencies [[org.clojure/clojure "1.9.0-beta3"]]
+                       :dependencies [[org.clojure/clojure "1.9.0-RC2"]]
                        :plugins      [[venantius/ultra "0.5.1"]
                                       [lein-codox      "0.10.3"]]
                        :codox        {:output-path  "doc/auto"
