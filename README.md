@@ -3,24 +3,28 @@
 [![Clojars
 Project](https://img.shields.io/clojars/v/dvlopt/pi4clj.svg)](https://clojars.org/dvlopt/pi4clj)
 
-Handle GPIOs on the Raspberry Pi and similar boards.
+Deprecated in favor of
+[dvlopt/linux.gpio](https://github.com/dvlopt/linux.gpio.clj) which relies on
+the standard Linux API for handling GPIO.
 
-This library relies on the stable JNI bindings to the excellent
-[wiringPi](http://www.wiringpi.com) provided by [PI4J](http://www.pi4j.com). No
-black magic involved.
+This library was a wrapper around [wiringPi](http://www.wiringpi.com), relying
+on the stable JNI bindings provided by [PI4J](http://www.pi4j.com). Although
+wiringPi is used and well-known, it is not standard (ie. specific to the
+Raspberry Pi) and presents some caveats. For instance, there is no automatic
+clean-up. If your program crashes, the state of the GPIO lines remains.
 
-For using [I2C](https://en.wikipedia.org/wiki/I%C2%B2C), refer to
-[dvlopt.i2c](https://github.com/dvlopt/i2c).
+For other capabilities offered by wiringPi :
 
-For using the serial port, refer to [Clotty](https://github.com/dvlopt/clotty),
-a multi plaform clojure wrapper around [RxTx](https://github.com/openmuc/jrxtx).
+- [dvlopt/linux.i2c](https://github.com/dvlopt/linux.i2c) for I2C using the
+standard Linux API as well.
+- [dvlopt/rxtx](https://github.com/dvlopt/rxtx) for serial port IO.
 
-See this [guide](https://github.com/dvlopt/clojure-raspberry-pi) containg
+See this [guide](https://github.com/dvlopt/clojure-raspberry-pi) containing
 advices and how-to's for running Clojure on the Raspberry Pi.
 
 ## Usage
 
-Read the [API](https://dvlopt.github.io/doc/pi4clj).
+Read the [API](https://dvlopt.github.io/doc/clojure/dvlopt/pi4clj/index.html).
 
 In short :
 
@@ -55,17 +59,8 @@ In short :
     (gpio/edge-detection :both))
 ```
 
-## Status
-
-In alpha, breaking changes might occur. Other than that, it is already being
-used in production.
-
-While PI4J supports other boards than the Raspberry family, this library has not
-been tested for anything else. Because it is lightweight, it should work just
-fine.
-
 ## License
 
-Copyright © 2017-2018 Adam Helinski
+Copyright © 2017 Adam Helinski
 
 Distributed under the GNU Lesser General Public License.
